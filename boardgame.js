@@ -1,7 +1,23 @@
 "use strict";
 
+const fileToBase64 = async (filepath) => {
+    const filename = filepath.slice(12);
+    console.log(filename);
+    return new Promise(resolve => {
+        var file = new File([filename], filepath);
+        var reader = new FileReader();    // Read file content on file loaded event
+        reader.onload = function(event) {
+            resolve(event.target.result);
+            console.log(event.target.result);
+        };
+        
+        // Convert data to base64 
+        reader.readAsDataURL(file);
+    });
+}
+
 class Pawn {
-    constructor(id, boardPos, style="peg", info={"color":"black","fill":"fill"}) {
+    constructor(id, boardPos, style="peg", info={"color":"#000000","fill":"fill"}) {
         this.id = id;
         this.boardPos = boardPos;
         this.style = style;
@@ -13,6 +29,12 @@ class Pawn {
     getPos() {
         return this.boardPos;
     }
+    getStyle() {
+        return this.style;
+    }
+    getInfo() {
+        return this.info;
+    }
     isAt(pos) {
         return this.boardPos[0] === pos[0] && this.boardPos[1] === pos[1];
     }
@@ -22,10 +44,17 @@ class Pawn {
     moveTo(boardPos) {
         this.boardPos=boardPos;
     }
+    setStyle(style) {
+        this.style = style;
+    }
+    setInfo(info) {
+        this.info = info;
+    }
 }
 
 class Board {
     constructor(widthCell, heightCell, cellSize, reference) {
+        this.reference = reference;
         this.widthCell = widthCell;
         this.heightCell = heightCell;
         this.cellSize = cellSize;
@@ -34,6 +63,7 @@ class Board {
         reference.style.position = "relative";
         reference.style.width = this.width+"px";
         reference.style.height = this.height+"px";
+        reference.classList.add("board-game");
         this.board = document.createElement("canvas");
         reference.appendChild(this.board);
         this.board.setAttribute("width", this.width);
@@ -127,17 +157,121 @@ class Board {
                 this.openBoardContextMenu(x, y);
             }
         })
+
+        reference.appendChild(this.createPawnModal());
+        reference.appendChild(this.createBoardModal());
+
         this.draw();
     }
 
-    //parts creation
+    //modals
     createPawnModal() {
         const modal = document.createElement("div");
+        modal.classList.add("board-game__modal");
+        modal.id = "pawnModal";
+        modal.innerHTML = `
+            <div class="board-game__modal__panel">
+                <h2 class="board-game__modal__title" id="pawnModalTitle">Edit Pawn</h2>
+                <div class="board-game__modal__style">
+                    <label for="pawnStyle">Style :</label>
+                    <select name="pawnStyle" id="pawnStyle">
+                        <option value="peg">Peg</option>
+                        <option value="token">Token</option>
+                    </select>
+                </div>
+                <div id="pegForm" class="board-game__modal__form">
+                    <input id="pegColor" name="pegColor" type="color">
+                    <select name="pegFill" id="pegFill">
+                        <option value="fill">Filled</option>
+                        <option value="stroke">Hollow</option>
+                    </select>
+                </div>
+                <div id="tokenForm" class="board-game__modal__form">
+                    <input  id="tokenFile" name="tokenFile" type="file" accept="image/*">
+                </div>
+                <button id="pawnButton">Done</button>
+            </div>
+            <div class="board-game__modal__background"></div>
+        `;
+        modal.querySelector("#pawnStyle").addEventListener("change", ()=> {
+            [...document.querySelectorAll(".board-game__modal__form")].forEach(form=>{
+                if(form.id === `${modal.querySelector("#pawnStyle").value}Form`) {
+                    form.style.display = "flex";
+                } else {
+                    form.style.display = "none";
+                }
+            })
+        });
+        modal.querySelector(".board-game__modal__background").addEventListener("click",this.hidePawnModal.bind(this));
+        modal.querySelector("#pawnButton").addEventListener("click",(()=>{
+            const pawn = this.getPawnFromCell(this.selectedCell);
+            pawn.setStyle(modal.querySelector("#pawnStyle").value);
+            pawn.setInfo({
+                "color": modal.querySelector("#pegColor").value,
+                "fill": modal.querySelector("#pegFill").value,
+            });
+            fileToBase64(modal.querySelector("#tokenFile").value).then((result)=>{
+                console.log(result);
+            })
+            this.draw();
+            this.hidePawnModal();
+        }).bind(this));
+        
+        return modal;
+    }
+    createBoardModal() { //TODO
+        const modal = document.createElement("div");
+        modal.classList.add("board-game__modal");
+        modal.innerHTML = `
+            <div class="board-game__panel">
+                <h2 class="board-game__title" id="pawnModalTitle">Edit Pawn</h2>
+                <select name="pawnStyle" id="pawnStyle">
+                    <option value="peg">Peg</option>
+                    <option value="token">Token</option>
+                </select>
+                <div id="pegForm" class="board-game__form">
+                    <input id="pegColor" name="pegColor" type="color">
+                    <select name="pegFill" id="pegFill">
+                        <option value="filled">Filled</option>
+                        <option value="stroke">Hollow</option>
+                    </select>
+                </div>
+                <div id="tokenForm" class="board-game__form">
+                    <input  id="tokenFile" name="tokenFile" type="file" accept="image/*">
+                </div>
+            </div>
+            <div class="board-game__modal"></div>
+        `;
+        return modal;
+    }
+    showPawnModal(pawn) {
+        this.reference.querySelector("#pawnStyle").value = pawn.getStyle();
+        this.reference.querySelector("#pegColor").value = pawn.getInfo().color;
+        this.reference.querySelector("#pegFill").value = pawn.getInfo().fill;
+        // this.reference.querySelector("#tokenFile").value = pawn.getInfo().image; TODO
+        [...this.reference.querySelectorAll(".board-game__modal__form")].forEach(form=>{
+            if(form.id === `${pawn.getStyle()}Form`) {
+                form.style.display = "flex";
+            } else {
+                form.style.display = "none";
+            }
+        })
+        this.reference.querySelector("#pawnModal").classList.add("active");
+    }
+    showBoardModal() {
+        this.reference.querySelector("#boardModal").classList.add("active");
+    }
+    hidePawnModal() {
+        this.reference.querySelector("#pawnModal").classList.remove("active");
+    }
+    hideBoardModal() {
+        this.reference.querySelector("#boardModal").classList.remove("active");
     }
 
     //drawing functions
     drawBoard() {
         this.ctx.beginPath();
+        this.ctx.lineWidth = 2;
         for(let i=0; i<=this.heightCell; i++) {
             this.ctx.moveTo(0, i*this.cellSize);
             this.ctx.lineTo(this.width, i*this.cellSize);
@@ -163,8 +297,8 @@ class Board {
         switch(pawn.style) {
             case "peg":
             default:
-                this.ctx.fillStyle = pawn.info.color;
-                this.ctx.strokeStyle = pawn.info.color;
+                this.ctx.fillStyle = pawn.getInfo().color;
+                this.ctx.strokeStyle = pawn.getInfo().color;
                 this.ctx.arc(...pawn.getPos().map(x=>(x+0.5)*this.cellSize), this.cellSize/2.5, 0, Math.PI*2);
                 switch(pawn.info.fill) {
                     case "stroke":
@@ -248,19 +382,19 @@ class Board {
     //context menu function
     contextAddPawn() {
         this.addPawn(this.selectedCell);
-        this.selectedCell = null;
         this.closeContextMenu();
     }
     contextEditPawn() {
-
+        this.showPawnModal(this.getPawnFromCell(this.selectedCell));
+        this.closeContextMenu();
     }
     contextRemovePawn() {
         this.removePawn(this.selectedCell);
-        this.selectedCell = null;
         this.closeContextMenu();
     }
     contextEditBoard() {
-
+        this.showBoardModal();
+        this.closeContextMenu();
     }
     contextResetBoard() {
 
