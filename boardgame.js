@@ -1,30 +1,24 @@
 "use strict";
 
-const fileToBase64 = async (filepath) => {
-    const filename = filepath.slice(12);
-    console.log(filename);
-    return new Promise(resolve => {
-        var file = new File([filename], filepath);
-        var reader = new FileReader();    // Read file content on file loaded event
-        reader.onload = function(event) {
-            resolve(event.target.result);
-            console.log(event.target.result);
-        };
-        
-        // Convert data to base64 
-        reader.readAsDataURL(file);
-    });
-}
-
 class Pawn {
-    constructor(id, boardPos, style="peg", info={"color":"#000000","fill":"fill"}) {
+    constructor(id, boardPos, style="peg", info={}, legalMoves=[]) {
         this.id = id;
         this.boardPos = boardPos;
         this.style = style;
-        this.info = info;
+        this.info = {
+            "color":info.color||"#000000",
+            "fill":info.fill||"fill",
+            "image":info.image||"oui"
+        };
+        this.legalMoves = legalMoves;
     }
+
+    //get functions
     getId() {
         return this.id;
+    }
+    isAt(pos) {
+        return this.boardPos[0] === pos[0] && this.boardPos[1] === pos[1];
     }
     getPos() {
         return this.boardPos;
@@ -35,12 +29,26 @@ class Pawn {
     getInfo() {
         return this.info;
     }
-    isAt(pos) {
-        return this.boardPos[0] === pos[0] && this.boardPos[1] === pos[1];
+    getColor() {
+        return this.info.color;
     }
-    getUrl() {
-        return this.url;
+    getFill() {
+        return this.info.fill;
     }
+    getImage() {
+        return this.info.image;
+    }
+    canMoveTo(pos) {
+        return this.legalMoves.some(move => (
+            pos[0] - this.boardPos[0] === move[0]
+            && pos[1] - this.boardPos[1] === move[1]
+        ))
+    }
+    getLegalMoves() {
+        return this.legalMoves;
+    }
+
+    //set functions
     moveTo(boardPos) {
         this.boardPos=boardPos;
     }
@@ -50,10 +58,22 @@ class Pawn {
     setInfo(info) {
         this.info = info;
     }
+    setColor(color) {
+        this.info.color = color;
+    }
+    setFill(fill) {
+        this.info.fill = fill;
+    }
+    setImage(image) {
+        this.info.image = image;
+    }
+    setLegalMoves(legalMoves) {
+
+    }
 }
 
 class Board {
-    constructor(widthCell, heightCell, cellSize, reference) {
+    constructor(widthCell, heightCell, cellSize, reference, boardImage="") {
         this.reference = reference;
         this.widthCell = widthCell;
         this.heightCell = heightCell;
@@ -68,11 +88,30 @@ class Board {
         reference.appendChild(this.board);
         this.board.setAttribute("width", this.width);
         this.board.setAttribute("height", this.height);
+        this.board.classList.add("board-game__canvas");
         this.ctx = this.board.getContext("2d");
         this.pawns = [];
         this.nextId = 0;
         this.selectedPawn = null;
         this.selectedCell = null;
+        this.localeImage = "";
+        this.grid = {
+            "display": true,
+            "color": "#000000"
+        }
+        if(boardImage) {
+            const request = new XMLHttpRequest();
+            request.open('GET', options.image, true);
+            request.responseType = 'blob';
+            request.onload = (() => {
+                var reader = new FileReader();
+                reader.onload =  ((e)=>{
+                    this.boardImage = e.target.result;
+                }).bind(this);
+                reader.readAsDataURL(request.response);
+            }).bind(this);
+            request.send();
+        }
 
         this.contextMenuWidth = 150;
         this.boardContextMenu = document.createElement("ul");
@@ -160,8 +199,16 @@ class Board {
 
         reference.appendChild(this.createPawnModal());
         reference.appendChild(this.createBoardModal());
+        reference.appendChild(this.createBoardBackground())
 
         this.draw();
+    }
+
+    createBoardBackground() {
+        const background = document.createElement("img");
+        background.id = "boardGameBackground";
+        background.classList.add("board-game__background");
+        return background;
     }
 
     //modals
@@ -194,7 +241,7 @@ class Board {
             <div class="board-game__modal__background"></div>
         `;
         modal.querySelector("#pawnStyle").addEventListener("change", ()=> {
-            [...document.querySelectorAll(".board-game__modal__form")].forEach(form=>{
+            [modal.querySelectorAll(".board-game__modal__form")].forEach(form=>{
                 if(form.id === `${modal.querySelector("#pawnStyle").value}Form`) {
                     form.style.display = "flex";
                 } else {
@@ -206,48 +253,43 @@ class Board {
         modal.querySelector("#pawnButton").addEventListener("click",(()=>{
             const pawn = this.getPawnFromCell(this.selectedCell);
             pawn.setStyle(modal.querySelector("#pawnStyle").value);
-            pawn.setInfo({
-                "color": modal.querySelector("#pegColor").value,
-                "fill": modal.querySelector("#pegFill").value,
-            });
-            fileToBase64(modal.querySelector("#tokenFile").value).then((result)=>{
-                console.log(result);
-            })
+            pawn.setColor(modal.querySelector("#pegColor").value);
+            pawn.setFill(modal.querySelector("#pegFill").value);
             this.draw();
             this.hidePawnModal();
         }).bind(this));
-        
+        modal.querySelector("#tokenFile").addEventListener("change", (()=>{
+            const pawn = this.getPawnFromCell(this.selectedCell);
+            this.setPawnImage(modal.querySelector("#tokenFile"), pawn);
+        }).bind(this));
         return modal;
     }
     createBoardModal() { //TODO
         const modal = document.createElement("div");
         modal.classList.add("board-game__modal");
+        modal.id = "boardModal";
         modal.innerHTML = `
-            <div class="board-game__panel">
-                <h2 class="board-game__title" id="pawnModalTitle">Edit Pawn</h2>
-                <select name="pawnStyle" id="pawnStyle">
-                    <option value="peg">Peg</option>
-                    <option value="token">Token</option>
-                </select>
-                <div id="pegForm" class="board-game__form">
-                    <input id="pegColor" name="pegColor" type="color">
-                    <select name="pegFill" id="pegFill">
-                        <option value="filled">Filled</option>
-                        <option value="stroke">Hollow</option>
-                    </select>
-                </div>
-                <div id="tokenForm" class="board-game__form">
-                    <input  id="tokenFile" name="tokenFile" type="file" accept="image/*">
-                </div>
+            <div class="board-game__modal__panel">
+                <h2 class="board-game__modal__title" id="boardModalTitle">Edit Board</h2>
+                <input  id="boardFile" name="boardFile" type="file" accept="image/*">
+                <button id="boardButton">Done</button>
             </div>
-            <div class="board-game__modal"></div>
+            <div class="board-game__modal__background"></div>
         `;
+        modal.querySelector(".board-game__modal__background").addEventListener("click",this.hideBoardModal.bind(this));
+        modal.querySelector("#boardButton").addEventListener("click",(()=>{
+            this.draw();
+            this.hideBoardModal();
+        }).bind(this));
+        modal.querySelector("#boardFile").addEventListener("change", (()=>{
+            this.setBoardImage(modal.querySelector("#boardFile"));
+        }).bind(this));
         return modal;
     }
     showPawnModal(pawn) {
         this.reference.querySelector("#pawnStyle").value = pawn.getStyle();
-        this.reference.querySelector("#pegColor").value = pawn.getInfo().color;
-        this.reference.querySelector("#pegFill").value = pawn.getInfo().fill;
+        this.reference.querySelector("#pegColor").value = pawn.getColor();
+        this.reference.querySelector("#pegFill").value = pawn.getFill();
         // this.reference.querySelector("#tokenFile").value = pawn.getInfo().image; TODO
         [...this.reference.querySelectorAll(".board-game__modal__form")].forEach(form=>{
             if(form.id === `${pawn.getStyle()}Form`) {
@@ -268,19 +310,47 @@ class Board {
         this.reference.querySelector("#boardModal").classList.remove("active");
     }
 
+    setPawnImage(inputSource, pawn) {
+        if (inputSource.files && inputSource.files[0]) {
+            const fileReader= new FileReader();
+            fileReader.addEventListener("load", function(e) {
+                pawn.setImage(e.target.result);
+            });
+            fileReader.readAsDataURL( inputSource.files[0] );
+        }
+    }
+    setBoardImage(inputSource) {
+        if (inputSource.files && inputSource.files[0]) {
+            const fileReader= new FileReader();
+            fileReader.addEventListener("load", ((e) => {
+                this.boardImage = e.target.result;
+                document.querySelector("#boardGameBackground").src = this.boardImage;
+            }).bind(this));
+            fileReader.readAsDataURL( inputSource.files[0] );
+        }
+    }
+
     //drawing functions
     drawBoard() {
-        this.ctx.beginPath();
-        this.ctx.lineWidth = 2;
-        for(let i=0; i<=this.heightCell; i++) {
-            this.ctx.moveTo(0, i*this.cellSize);
-            this.ctx.lineTo(this.width, i*this.cellSize);
+        //background
+        if(this.boardImage){
+            this.reference.querySelector("#boardGameBackground").src = this.boardImage;
         }
-        for(let i=0; i<=this.widthCell; i++) {
-            this.ctx.moveTo(i*this.cellSize, 0);
-            this.ctx.lineTo(i*this.cellSize, this.height);
+        //grid
+        if(this.grid.display) {
+            this.ctx.beginPath();
+            this.ctx.lineWidth = 2;
+            this.ctx.strokeStyle = this.grid.color;
+            for(let i=0; i<=this.heightCell; i++) {
+                this.ctx.moveTo(0, i*this.cellSize);
+                this.ctx.lineTo(this.width, i*this.cellSize);
+            }
+            for(let i=0; i<=this.widthCell; i++) {
+                this.ctx.moveTo(i*this.cellSize, 0);
+                this.ctx.lineTo(i*this.cellSize, this.height);
+            }
+            this.ctx.stroke();
         }
-        this.ctx.stroke();
     }
     drawSelected() {
         if(this.selectedPawn) {
@@ -295,10 +365,18 @@ class Board {
         this.ctx.beginPath();
         this.ctx.lineWidth = 3;
         switch(pawn.style) {
+            case "token":
+                const image = new Image();
+                image.onload = (() => {
+                    this.ctx.globalCompositeOperation = "source-over";
+                    this.ctx.drawImage(image, ...pawn.getPos().map(x=>(x+0.05)*this.cellSize), this.cellSize*0.9, this.cellSize*0.9);
+                }).bind(this);
+                image.src = pawn.getImage();
+                break;
             case "peg":
             default:
-                this.ctx.fillStyle = pawn.getInfo().color;
-                this.ctx.strokeStyle = pawn.getInfo().color;
+                this.ctx.fillStyle = pawn.getColor();
+                this.ctx.strokeStyle = pawn.getColor();
                 this.ctx.arc(...pawn.getPos().map(x=>(x+0.5)*this.cellSize), this.cellSize/2.5, 0, Math.PI*2);
                 switch(pawn.info.fill) {
                     case "stroke":
@@ -368,23 +446,26 @@ class Board {
         const button = document.createElement("li");
         button.innerText = text;
         button.setAttribute("style", `
-        box-sizing: border-box;
-        width: 100%;
-        height: 35px;
-        padding: 5px 0;
-        margin: 0 0;
-        cursor: pointer;
-    `);
+            box-sizing: border-box;
+            width: 100%;
+            height: 35px;
+            padding: 5px 0;
+            margin: 0 0;
+            cursor: pointer;
+        `);
         button.addEventListener("click", handleClickFunction.bind(this));
         return button;
     }
 
     //context menu function
     contextAddPawn() {
+        this.reference.querySelector("#pawnModalTitle").innerText = "New Pawn";
         this.addPawn(this.selectedCell);
+        this.showPawnModal(this.getPawnFromCell(this.selectedCell));
         this.closeContextMenu();
     }
     contextEditPawn() {
+        this.reference.querySelector("#pawnModalTitle").innerText = "Edit Pawn";
         this.showPawnModal(this.getPawnFromCell(this.selectedCell));
         this.closeContextMenu();
     }
@@ -397,9 +478,51 @@ class Board {
         this.closeContextMenu();
     }
     contextResetBoard() {
-
+        this.pawns = [];
+        this.boardImage = "";
+        this.draw();
+        this.closeContextMenu();
     }
 
+    //external commands
+    setOptions(options={}) {
+        if(options.image) {
+            const request = new XMLHttpRequest();
+            request.open('GET', options.image, true);
+            request.responseType = 'blob';
+            request.onload = (() => {
+                var reader = new FileReader();
+                reader.onload =  ((e)=>{
+                    this.boardImage = e.target.result;
+                }).bind(this);
+                reader.readAsDataURL(request.response);
+            }).bind(this);
+            request.send();
+        }
+        if(options.gridDisplay !== undefined) {
+            this.grid.display = options.gridDisplay;
+        }
+        if(options.gridColor) {
+            this.grid.color = options.gridColor;
+        }
+        this.draw();
+    }
+    addPeg(boardPos, color="#000000", fill="fill") {
+        this.addPawn(boardPos, "peg", {"color":color,"fill":fill});
+    }
+    addToken(boardPos, url) {
+        const request = new XMLHttpRequest();
+        request.open('GET', url, true);
+        request.responseType = 'blob';
+        request.onload = (() => {
+            var fileReader = new FileReader();
+            fileReader.onload =  ((e)=>{
+                this.addPawn(boardPos, "token", {"image": e.target.result});
+            }).bind(this);
+            fileReader.readAsDataURL(request.response);
+        }).bind(this);
+        request.send();
+    }
 }
 
 // module.exports.Pawn = Pawn;
