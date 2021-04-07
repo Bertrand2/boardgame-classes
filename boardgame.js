@@ -1,8 +1,59 @@
 "use strict";
 
+const PRESET_DIST = 30;
+const PRESET_MOVES = {
+    "prince": [
+        [0,1],
+        [0,-1],
+        [1,0],
+        [-1,0]
+    ],
+    "king": [
+        [0,1],
+        [0,-1],
+        [1,0],
+        [-1,0],
+        [1,1],
+        [1,-1],
+        [-1,-1],
+        [-1,1]
+    ],
+    "knight": [
+        [2,1],
+        [2,-1],
+        [-2,-1],
+        [-2,1],
+        [1,2],
+        [1,-2],
+        [-1,-2],
+        [-1,2]
+    ],
+    "rook": [
+        ...[...Array(PRESET_DIST).keys()].map(x=>[x+1, 0]),
+        ...[...Array(PRESET_DIST).keys()].map(x=>[-x-1, 0]),
+        ...[...Array(PRESET_DIST).keys()].map(x=>[0, x+1]),
+        ...[...Array(PRESET_DIST).keys()].map(x=>[0, -x-1])
+    ],
+    "bishop": [
+        ...[...Array(PRESET_DIST).keys()].map(x=>[x+1, x+1]),
+        ...[...Array(PRESET_DIST).keys()].map(x=>[x+1, -x-1]),
+        ...[...Array(PRESET_DIST).keys()].map(x=>[-x-1, -x-1]),
+        ...[...Array(PRESET_DIST).keys()].map(x=>[-x-1, x+1])
+    ],
+    "queen": [
+        ...[...Array(PRESET_DIST).keys()].map(x=>[x+1, 0]),
+        ...[...Array(PRESET_DIST).keys()].map(x=>[-x-1, 0]),
+        ...[...Array(PRESET_DIST).keys()].map(x=>[0, x+1]),
+        ...[...Array(PRESET_DIST).keys()].map(x=>[0, -x-1]),
+        ...[...Array(PRESET_DIST).keys()].map(x=>[x+1, x+1]),
+        ...[...Array(PRESET_DIST).keys()].map(x=>[x+1, -x-1]),
+        ...[...Array(PRESET_DIST).keys()].map(x=>[-x-1, -x-1]),
+        ...[...Array(PRESET_DIST).keys()].map(x=>[-x-1, x+1])
+    ]
+}
+
 class Pawn {
-    constructor(id, boardPos, style="peg", info={}, legalMoves=[]) {
-        this.id = id;
+    constructor(boardPos, style="peg", info={}, legalMoves=[]) {
         this.boardPos = boardPos;
         this.style = style;
         this.info = {
@@ -10,13 +61,14 @@ class Pawn {
             "fill":info.fill||"fill",
             "image":info.image||"oui"
         };
-        this.legalMoves = legalMoves;
+        if(typeof legalMoves === "string") {
+            this.legalMoves = PRESET_MOVES[legalMoves] || [];
+        } else {
+            this.legalMoves = legalMoves;
+        }
     }
 
     //get functions
-    getId() {
-        return this.id;
-    }
     isAt(pos) {
         return this.boardPos[0] === pos[0] && this.boardPos[1] === pos[1];
     }
@@ -39,10 +91,12 @@ class Pawn {
         return this.info.image;
     }
     canMoveTo(pos) {
-        return this.legalMoves.some(move => (
-            pos[0] - this.boardPos[0] === move[0]
-            && pos[1] - this.boardPos[1] === move[1]
-        ))
+        return this.legalMoves.length>0
+            ? this.legalMoves.some(move => (
+                pos[0] - this.boardPos[0] === move[0]
+                && pos[1] - this.boardPos[1] === move[1]
+            ))
+            : true;
     }
     getLegalMoves() {
         return this.legalMoves;
@@ -68,12 +122,15 @@ class Pawn {
         this.info.image = image;
     }
     setLegalMoves(legalMoves) {
-
+        this.legalMoves = legalMoves;
+    }
+    resetLegalMoves() {
+        this.legalMoves = [];
     }
 }
 
 class Board {
-    constructor(widthCell, heightCell, cellSize, reference, boardImage="") {
+    constructor(widthCell, heightCell, cellSize, reference, boardImage="", ruleSet={}) {
         this.reference = reference;
         this.widthCell = widthCell;
         this.heightCell = heightCell;
@@ -91,13 +148,16 @@ class Board {
         this.board.classList.add("board-game__canvas");
         this.ctx = this.board.getContext("2d");
         this.pawns = [];
-        this.nextId = 0;
         this.selectedPawn = null;
         this.selectedCell = null;
         this.localeImage = "";
         this.grid = {
             "display": true,
             "color": "#000000"
+        }
+        this.ruleSet = {
+            "overlap": ruleSet.overlap || "overlap", //none, kill, overlap
+            "pathBlock": ruleSet.pathBlock || "none", //none, block
         }
         if(boardImage) {
             const request = new XMLHttpRequest();
@@ -172,7 +232,12 @@ class Board {
 
             const cell = this.getCell(x, y);
             if(this.selectedPawn) {
-                this.selectedPawn.moveTo(cell);
+                if(this.selectedPawn.canMoveTo(cell) && this.respectRules(this.selectedPawn.getPos(), cell, this.selectedPawn.getLegalMoves())) {
+                    if(this.ruleSet.overlap === "kill") {
+                        this.removePawn(cell);
+                    }
+                    this.selectedPawn.moveTo(cell);
+                }
                 this.selectedPawn = null;
             } else {
                 this.selectedPawn = this.getPawnFromCell(cell) || null;
@@ -310,6 +375,7 @@ class Board {
         this.reference.querySelector("#boardModal").classList.remove("active");
     }
 
+    //edit visual
     setPawnImage(inputSource, pawn) {
         if (inputSource.files && inputSource.files[0]) {
             const fileReader= new FileReader();
@@ -328,6 +394,35 @@ class Board {
             }).bind(this));
             fileReader.readAsDataURL( inputSource.files[0] );
         }
+    }
+
+    //rules functions
+    respectRules(origin, destination, moveSet) {
+        if(this.ruleSet.overlap === "none" && this.getPawnFromCell(destination)){
+            return false;
+        }
+        if(moveSet && this.ruleSet.pathBlock === "block") {
+            const steps = Math.max(
+                Math.abs(destination[0] - origin[0]),
+                Math.abs(destination[1] - origin[1])
+            );
+            for(let i=1; i<steps; i++) {
+                const inspectedCell = [
+                    Math.round((destination[0] - origin[0])*i/steps),
+                    Math.round((destination[1] - origin[1])*i/steps)
+                ]
+                if(
+                    moveSet.some(x=>(
+                        x[0] === inspectedCell[0]
+                        && x[1] === inspectedCell[1]
+                    )
+                    && this.getPawnFromCell(inspectedCell.map((x,i)=>(x+origin[i]))))
+                ) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     //drawing functions
@@ -354,21 +449,23 @@ class Board {
     }
     drawSelected() {
         if(this.selectedPawn) {
+            const pawnPos = this.selectedPawn.getPos();
             this.ctx.beginPath();
-            this.ctx.fillStyle = "#FFA500";
-            this.ctx.arc(...this.selectedPawn.getPos().map(x=>(x+0.5)*this.cellSize), this.cellSize/2.1, 0, Math.PI*2);
-            this.ctx.fill();
+            this.ctx.strokeStyle = "#FFA500";
+            this.ctx.arc(...pawnPos.map(x=>(x+0.5)*this.cellSize), this.cellSize/2.1, 0, Math.PI*2);
+            this.ctx.stroke();
             this.ctx.fillStyle = "#000000";
         }
     }
     drawPawn(pawn) {
         this.ctx.beginPath();
         this.ctx.lineWidth = 3;
+        this.ctx.globalCompositeOperation = "destination-over";
         switch(pawn.style) {
             case "token":
                 const image = new Image();
                 image.onload = (() => {
-                    this.ctx.globalCompositeOperation = "source-over";
+                    this.ctx.globalCompositeOperation = "destination-over";
                     this.ctx.drawImage(image, ...pawn.getPos().map(x=>(x+0.05)*this.cellSize), this.cellSize*0.9, this.cellSize*0.9);
                 }).bind(this);
                 image.src = pawn.getImage();
@@ -392,11 +489,35 @@ class Board {
     drawPawns() {
         this.pawns.forEach(pawn=>this.drawPawn(pawn));
     }
+    drawLegalMoves() {
+        if(this.selectedPawn) {
+            const legalMoves = this.selectedPawn.getLegalMoves();
+            if(legalMoves.length>0) {
+                const pawnPos = this.selectedPawn.getPos();
+                legalMoves.forEach(move => {
+                    const destination = pawnPos.map((x,i)=>x+move[i]);
+                    if(this.respectRules(pawnPos, destination, legalMoves)) {
+                        this.ctx.beginPath();
+                        if(this.ruleSet.overlap === "kill" && this.getPawnFromCell(destination)) {
+                            this.ctx.fillStyle = "rgba(255, 0, 0, 0.4)";
+                        } else {
+                            this.ctx.fillStyle = "rgba(255, 165, 0, 0.4)";
+                        }
+                        this.ctx.globalCompositeOperation = "source-over";
+                        this.ctx.arc(...destination.map(x=>(x+0.5)*this.cellSize), this.cellSize/2.1, 0, Math.PI*2);
+                        this.ctx.fill();
+                    }
+                })
+                this.ctx.fillStyle = "#000000";
+            }
+        }
+    }
     draw() {
         this.ctx.clearRect(0, 0, this.width, this.height);
         this.drawBoard();
         this.drawSelected();
         this.drawPawns();
+        this.drawLegalMoves();
     }
 
     //get functions
@@ -413,17 +534,16 @@ class Board {
         return this.pawns.some(pawn=>pawn.isAt(cell));
     }
 
-    //edit board
-    addPawn(boardPos, style="peg", info={"color":"black","fill":"fill"}) {
+    //edit pawns
+    addPawn(boardPos, style="peg", info={"color":"black","fill":"fill"}, legalMoves) {
         this.pawns.push(
-            new Pawn(this.nextId++, boardPos, style, info)
+            new Pawn(boardPos, style, info, legalMoves)
         );
         this.draw();
     }
     removePawn(pos) {
         const index = this.pawns.findIndex(pawn=>pawn.isAt(pos));
         index>-1 && this.pawns.splice(index,1);
-        this.selectedPawn = null;
         this.draw();
     }
 
@@ -471,6 +591,7 @@ class Board {
     }
     contextRemovePawn() {
         this.removePawn(this.selectedCell);
+        this.selectedPawn = null;
         this.closeContextMenu();
     }
     contextEditBoard() {
@@ -505,19 +626,25 @@ class Board {
         if(options.gridColor) {
             this.grid.color = options.gridColor;
         }
+        if(options.overlap) {
+            this.ruleSet.overlap = options.overlap;
+        }
+        if(options.pathBlock) {
+            this.ruleSet.pathBlock = options.pathBlock;
+        }
         this.draw();
     }
-    addPeg(boardPos, color="#000000", fill="fill") {
-        this.addPawn(boardPos, "peg", {"color":color,"fill":fill});
+    addPeg(boardPos, color="#000000", fill="fill", legalMoves) {
+        this.addPawn(boardPos, "peg", {"color":color,"fill":fill}, legalMoves);
     }
-    addToken(boardPos, url) {
+    addToken(boardPos, url, legalMoves) {
         const request = new XMLHttpRequest();
         request.open('GET', url, true);
         request.responseType = 'blob';
         request.onload = (() => {
             var fileReader = new FileReader();
             fileReader.onload =  ((e)=>{
-                this.addPawn(boardPos, "token", {"image": e.target.result});
+                this.addPawn(boardPos, "token", {"image": e.target.result}, legalMoves);
             }).bind(this);
             fileReader.readAsDataURL(request.response);
         }).bind(this);
