@@ -9,7 +9,7 @@ const board = new Board(23, 16, 60, document.querySelector("#canvas"));
 board.setOptions({
     "image": "./assets/gardens.jpeg",
     "gridDisplay": false,
-    "gridColor": "#ff0025",
+    "gridColor": "#000000", //"#ff0025",
     "overlap": "kill",
     "pathBlock": "block"
 });
