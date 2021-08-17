@@ -4,8 +4,10 @@
 PAWNS COMMANDS
 ===========================*/
 
+//setting a board in the container "#canvas" 23 cells wide, 16 cells in height, with each cell being a 60px square
 const board = new Board(23, 16, 60, document.querySelector("#canvas"));
 
+//set board options : what is the background image, how's the grid displayed, how do the pawns interact
 board.setOptions({
     "image": "./assets/gardens.jpeg",
     "gridDisplay": false,
