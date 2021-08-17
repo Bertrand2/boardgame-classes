@@ -233,7 +233,7 @@ class Board {
             const cell = this.getCell(x, y);
             if(this.selectedPawn) {
                 if(this.selectedPawn.canMoveTo(cell) && this.respectRules(this.selectedPawn.getPos(), cell, this.selectedPawn.getLegalMoves())) {
-                    if(this.ruleSet.overlap === "kill") {
+                    if(this.ruleSet.overlap === "kill" && !this.selectedPawn.isAt(cell)) {
                         this.removePawn(cell);
                     }
                     this.selectedPawn.moveTo(cell);
@@ -306,7 +306,7 @@ class Board {
             <div class="board-game__modal__background"></div>
         `;
         modal.querySelector("#pawnStyle").addEventListener("change", ()=> {
-            [modal.querySelectorAll(".board-game__modal__form")].forEach(form=>{
+            [...modal.querySelectorAll(".board-game__modal__form")].forEach(form=>{
                 if(form.id === `${modal.querySelector("#pawnStyle").value}Form`) {
                     form.style.display = "flex";
                 } else {
